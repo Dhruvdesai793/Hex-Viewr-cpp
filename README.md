@@ -16,9 +16,7 @@ A simple yet powerful web-based hexadecimal viewer, forged by compiling C++ to W
 
 ## My Journey: A WebAssembly Adventure! 🎢
 
-This project began as a quest to truly grasp WebAssembly and bridge my love for low-level C++ with the dynamic world of web apps. What started as a humble command-line tool blossomed into this interactive web viewer, pushing my limits in C++ compilation, Emscripten wizardry, and JavaScript magic. 🧙‍♂️
-
-The path wasn't always smooth! I battled relentless "command not found" errors, chased elusive "undefined symbols," and tamed tricky "MIME type" conflicts. Each bug felt like a boss battle, demanding meticulous attention to compiler flags, environment setups, and the intricate dance of JavaScript module loading. It was a challenging, yet incredibly rewarding odyssey, turning frustration into the pure joy of seeing C++ code run flawlessly in a web browser. This adventure has laid a rock-solid foundation for future, even bolder projects... like a Game Boy emulator! 🎮✨
+My first dive into WebAssembly was pure magic! ✨ I tried getting my C++ code to run in a web browser, which felt impossible for a newbie. 🤯 I hit so many "command not found" and "undefined symbols" errors. 🧱 But seeing my C++ actually work in the browser was mind-blowing! 🤩 It was tough, but totally worth it. Now I'm ready for anything, maybe even a Game Boy emulator! 🎮 Wish me luck! 🙏
 
 ## Tech Stack 🛠️
 
