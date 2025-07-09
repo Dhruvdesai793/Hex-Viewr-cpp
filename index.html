@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Web Hex Viewer (C++ WebAssembly)</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="hex_viewer_web.js"></script>
+</head>
+<body>
+  <div class="dark-mode-toggle" id="darkModeToggle">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm0 17.5V4.5c4.142 0 7.5 3.358 7.5 7.5s-3.358 7.5-7.5 7.5z"/></svg>
+  </div>
+  <div class="container">
+    <h1>C++ Web Hex Viewer</h1>
+    <div class="input-section">
+      <label for="fileInput">Upload a File:</label>
+      <input type="file" id="fileInput" accept=".bin,.txt,.rom,*/*" />
+      <div class="separator">-- OR --</div>
+      <label for="textInput">Enter Text Directly:</label>
+      <textarea id="textInput" placeholder="Type or paste your text here..."></textarea>
+      <button id="processButton" disabled>Loading...</button>
+    </div>
+    <div class="loading-message" id="loadingMessage">
+        <span class="loading-spinner"></span> Loading WebAssembly module...
+    </div>
+    <div class="file-info" id="fileInfo"></div>
+    <label style="margin-top: 20px;">Hexadecimal Output:</label>
+    <div class="search-section">
+        <input type="text" id="searchQuery" placeholder="Search hex (e.g., 48 65) or text (e.g., Hello)">
+        <button id="searchButton" class="utility-button">Search</button>
+        <button id="clearSearchButton" class="utility-button">Clear Search</button>
+    </div>
+    <div class="output-controls">
+        <button id="clearOutputBtn" class="utility-button">Clear Output</button>
+        <button id="copyOutputBtn" class="utility-button">Copy to Clipboard</button>
+        <button id="downloadOutputBtn" class="utility-button">Download Output</button>
+    </div>
+    <pre id="output"></pre>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const textInput = document.getElementById('textInput');
+    const processButton = document.getElementById('processButton');
+    const outputDiv = document.getElementById('output');
+    const loadingMessage = document.getElementById('loadingMessage');
+    const fileInfoDiv = document.getElementById('fileInfo');
+    const clearOutputBtn = document.getElementById('clearOutputBtn');
+    const copyOutputBtn = document.getElementById('copyOutputBtn');
+    const downloadOutputBtn = document.getElementById('downloadOutputBtn');
+    const darkModeToggle = document.getElementById('darkModeToggle');
+    const searchQueryInput = document.getElementById('searchQuery');
+    const searchButton = document.getElementById('searchButton');
+    const clearSearchButton = document.getElementById('clearSearchButton');
+    const toastContainer = document.getElementById('toastContainer');
+
+    let wasm_malloc;
+    let wasm_free;
+    let wasm_heap_u8;
+    let wasm_processFileForHexView;
+    let wasm_stringToUTF8;
+    let originalOutputContent = '';
+
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.classList.add('toast', type);
+        toast.textContent = message;
+        toastContainer.appendChild(toast);
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    }
+
+    function toggleDarkMode() {
+        document.body.classList.toggle('dark-mode');
+        localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
+    }
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    if (localStorage.getItem('darkMode') === 'true') {
+        document.body.classList.add('dark-mode');
+    }
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            fileInfoDiv.textContent = `Selected: ${file.name} (${file.size} bytes)`;
+        } else {
+            fileInfoDiv.textContent = '';
+        }
+    });
+
+    searchButton.addEventListener('click', () => {
+        const query = searchQueryInput.value.trim();
+        if (!query) {
+            outputDiv.innerHTML = originalOutputContent;
+            return;
+        }
+
+        const outputText = originalOutputContent;
+        let highlightedHtml = outputText;
+
+        const hexPattern = /^([0-9a-fA-F]{2}\s*)+$/;
+        const isHexSearch = hexPattern.test(query);
+
+        if (isHexSearch) {
+            const searchHex = query.toLowerCase().replace(/\s/g, '');
+            const lines = outputText.split('\n');
+            highlightedHtml = lines.map(line => {
+                const hexPart = line.substring(10, 58);
+                const asciiPart = line.substring(60);
+                let modifiedHexPart = hexPart;
+
+                let matchIndex = -1;
+                let currentPos = 0;
+                const hexCharsPerByte = 3;
+                const queryBytes = searchHex.length / 2;
+
+                while ((matchIndex = hexPart.toLowerCase().indexOf(searchHex, currentPos)) !== -1) {
+                    const actualStart = matchIndex;
+                    const actualEnd = actualStart + searchHex.length;
+
+                    modifiedHexPart = modifiedHexPart.substring(0, actualStart) +
+                                      '<span class="highlight">' +
+                                      modifiedHexPart.substring(actualStart, actualEnd) +
+                                      '</span>' +
+                                      modifiedHexPart.substring(actualEnd);
+                    currentPos = actualEnd + '<span class="highlight">'.length + '</span>'.length;
+                }
+                return line.substring(0, 10) + modifiedHexPart + asciiPart;
+            }).join('\n');
+
+        } else {
+            const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escapedQuery})`, 'gi');
+            highlightedHtml = outputText.replace(regex, '<span class="highlight">$&</span>');
+        }
+        outputDiv.innerHTML = highlightedHtml;
+    });
+
+    clearSearchButton.addEventListener('click', () => {
+        searchQueryInput.value = '';
+        outputDiv.innerHTML = originalOutputContent;
+        showToast('Search cleared.', 'info');
+    });
+
+    createModule({
+      print: function(text) {
+        outputDiv.textContent += text + '\n';
+        outputDiv.scrollTop = outputDiv.scrollHeight;
+      },
+      printErr: function(text) {
+        outputDiv.textContent += 'ERROR: ' + text + '\n';
+        outputDiv.scrollTop = outputDiv.scrollHeight;
+      },
+      onRuntimeInitialized: function() {
+        const Module = this;
+        loadingMessage.style.display = 'none';
+        console.log("WebAssembly module loaded and ready!");
+
+        wasm_malloc = Module._malloc;
+        wasm_free = Module._free;
+        wasm_heap_u8 = Module.HEAPU8;
+        wasm_stringToUTF8 = Module.stringToUTF8;
+        wasm_processFileForHexView = Module.cwrap('processFileForHexView', 'void', ['number', 'number', 'number']);
+
+        processButton.disabled = false;
+        processButton.textContent = "Process Input";
+
+        processButton.addEventListener('click', async () => {
+          outputDiv.textContent = '';
+          fileInfoDiv.textContent = '';
+          originalOutputContent = '';
+          searchQueryInput.value = '';
+          let dataToSend = null;
+          let fileName = "text_input.txt";
+          let fileSize = 0;
+
+          if (fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            fileName = file.name;
+            fileSize = file.size;
+            const arrayBuffer = await file.arrayBuffer();
+            dataToSend = new Uint8Array(arrayBuffer);
+          } else if (textInput.value.trim().length > 0) {
+            const text = textInput.value;
+            dataToSend = new TextEncoder().encode(text);
+            fileName = "direct_input.txt";
+            fileSize = dataToSend.length;
+          } else {
+            showToast('Please upload a file or enter some text.', 'error');
+            return;
+          }
+
+          fileInfoDiv.textContent = `Processing: ${fileName} (${fileSize} bytes)`;
+          loadingMessage.style.display = 'flex';
+          loadingMessage.innerHTML = '<span class="loading-spinner"></span> Processing data...';
+          processButton.disabled = true;
+
+          const dataPtr = wasm_malloc(dataToSend.length);
+          wasm_heap_u8.set(dataToSend, dataPtr);
+          const fileNamePtr = wasm_malloc(fileName.length + 1);
+          wasm_stringToUTF8(fileName, fileNamePtr, fileName.length + 1);
+
+          try {
+            wasm_processFileForHexView(dataPtr, dataToSend.length, fileNamePtr);
+            originalOutputContent = outputDiv.textContent;
+            showToast('File processed successfully!', 'success');
+          } catch (err) {
+            console.error("Error calling WebAssembly function:", err);
+            outputDiv.textContent = 'ERROR: Failed to process data. Check console for details.';
+            showToast('Error processing file!', 'error');
+          } finally {
+            wasm_free(dataPtr);
+            wasm_free(fileNamePtr);
+            loadingMessage.style.display = 'none';
+            loadingMessage.innerHTML = '<span class="loading-spinner"></span> Loading WebAssembly module...';
+            processButton.disabled = false;
+          }
+        });
+
+        clearOutputBtn.addEventListener('click', () => {
+            outputDiv.textContent = '';
+            fileInfoDiv.textContent = '';
+            originalOutputContent = '';
+            searchQueryInput.value = '';
+            showToast('Output cleared.', 'info');
+        });
+
+        copyOutputBtn.addEventListener('click', () => {
+            try {
+                const textToCopy = outputDiv.textContent;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(textToCopy).then(() => {
+                        showToast('Output copied to clipboard!', 'success');
+                    }).catch(err => {
+                        console.error('Failed to copy text using Clipboard API: ', err);
+                        fallbackCopyToClipboard(textToCopy);
+                    });
+                } else {
+                    fallbackCopyToClipboard(textToCopy);
+                }
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                showToast('Failed to copy output.', 'error');
+            }
+        });
+
+        function fallbackCopyToClipboard(textToCopy) {
+            const tempInput = document.createElement('textarea');
+            tempInput.value = textToCopy;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            try {
+                document.execCommand('copy');
+                showToast('Output copied to clipboard (fallback)!', 'success');
+            } catch (err) {
+                console.error('Failed to copy text using execCommand: ', err);
+                showToast('Failed to copy output.', 'error');
+            } finally {
+                document.body.removeChild(tempInput);
+            }
+        }
+
+        downloadOutputBtn.addEventListener('click', () => {
+            const textToSave = outputDiv.textContent;
+            const blob = new Blob([textToSave], { type: 'text/plain' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'hex_output.txt';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+            showToast('Output downloaded!', 'success');
+        });
+      }
+    });
+  </script>
+</body>
+</html>
